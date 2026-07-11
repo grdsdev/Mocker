@@ -10,6 +10,8 @@ struct RequestDecision {
 }
 
 /// An isolated, synchronously accessed collection of mocks and request-handling configuration.
+///
+/// The unchecked sendability is protected by the single `NSLock` guarding all mutable state.
 public final class MockRegistry: @unchecked Sendable {
     private struct Entry { let pattern: RequestPattern; var mock: Mock }
     private struct State {
@@ -36,9 +38,9 @@ public final class MockRegistry: @unchecked Sendable {
     private var state: State
 
     /// Creates an independent registry.
-    public init(mode: Mocker.Mode = .optout, httpVersion: Mocker.HTTPVersion = .http1_1, historyCapacity: Int = 100, bodyCapturePolicy: RequestBodyCapturePolicy = .none) {
-        precondition(historyCapacity >= 0, "History capacity cannot be negative")
-        if case .upToBytes(let limit) = bodyCapturePolicy { precondition(limit >= 0, "Body capture limit cannot be negative") }
+    public init(mode: Mocker.Mode = .optOut, httpVersion: Mocker.HTTPVersion = .http1_1, historyCapacity: Int = 100, bodyCapturePolicy: RequestBodyCapturePolicy = .none) throws {
+        guard historyCapacity >= 0 else { throw MockConfigurationError.invalidHistoryCapacity(historyCapacity) }
+        if case .upToBytes(let limit) = bodyCapturePolicy, limit < 0 { throw MockConfigurationError.invalidBodyCaptureLimit(limit) }
         self.historyCapacity = historyCapacity
         self.bodyCapturePolicy = bodyCapturePolicy
         state = State(mode: mode, httpVersion: httpVersion)
@@ -51,11 +53,8 @@ public final class MockRegistry: @unchecked Sendable {
     public var httpVersion: Mocker.HTTPVersion { get { withState { $0.httpVersion } } set { withState { $0.httpVersion = newValue } } }
 
     /// Registers a mock using the matching fields from the mock.
-    public func register(_ mock: Mock) { register(mock, matching: mock.requestPattern) }
-
-    /// Registers a mock with an explicit pattern, replacing an equal pattern without changing its position.
-    public func register(_ mock: Mock, matching pattern: RequestPattern) {
-        precondition(pattern.constrainedMethods == mock.responseMethods, "Pattern methods must equal the mock response methods")
+    public func register(_ mock: Mock) {
+        let pattern = mock.pattern
         withState { state in
             if let index = state.entries.firstIndex(where: { $0.pattern == pattern }) { state.entries[index].mock = mock }
             else { state.entries.append(Entry(pattern: pattern, mock: mock)) }
@@ -100,8 +99,8 @@ public final class MockRegistry: @unchecked Sendable {
     func shouldHandle(_ request: URLRequest) -> Bool {
         withState { state in
             switch state.mode {
-            case .optout: return !state.ignored.contains(where: { $0.matches(request) })
-            case .optin: return Self.find(request, in: state.entries) != nil
+            case .optOut: return !state.ignored.contains(where: { $0.matches(request) })
+            case .optIn: return Self.find(request, in: state.entries) != nil
             }
         }
     }
@@ -110,9 +109,11 @@ public final class MockRegistry: @unchecked Sendable {
         withState { state in Self.findEntry(request, in: state.entries).map { RequestDecision(mock: $0.mock, pattern: $0.pattern, httpVersion: state.httpVersion) } }
     }
 
-    func snapshot(for request: URLRequest, pattern: RequestPattern, id: UUID, bodyData: Data?) -> MockedRequest? {
+    func snapshot(for request: URLRequest, pattern: RequestPattern, id: UUID, bodyResult: Result<Data?, RequestBodyError>) -> MockedRequest? {
         guard let url = request.url, let method = Mock.HTTPMethod(rawValue: request.httpMethod ?? "GET") else { return nil }
-        let source = bodyData
+        let source: Data?
+        let bodyError: RequestBodyError?
+        switch bodyResult { case .success(let data): source = data; bodyError = nil; case .failure(let error): source = nil; bodyError = error }
         let capture: (Data?, Bool)
         switch bodyCapturePolicy {
         case .none: capture = (nil, false)
@@ -120,7 +121,7 @@ public final class MockRegistry: @unchecked Sendable {
         case .upToBytes(let limit):
             capture = source.map { (Data($0.prefix(limit)), $0.count > limit) } ?? (nil, false)
         }
-        return MockedRequest(id: id, url: url, method: method, headers: request.allHTTPHeaderFields ?? [:], body: capture.0, isBodyTruncated: capture.1, pattern: pattern)
+        return MockedRequest(id: id, url: url, method: method, headers: request.allHTTPHeaderFields ?? [:], body: capture.0, isBodyTruncated: capture.1, bodyError: bodyError, pattern: pattern)
     }
 
     func record(_ event: MockRegistryEvent) {

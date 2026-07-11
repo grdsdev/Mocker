@@ -20,9 +20,9 @@ public struct RequestPattern: Hashable, Sendable {
     ///   - url: The absolute HTTP or HTTPS URL that defines the pattern.
     ///   - methods: The accepted methods, or `nil` to accept any method.
     ///   - matchType: The URL matching behavior.
-    public init(url: URL, methods: Set<Mock.HTTPMethod>? = nil, matchType: URLMatchType = .full) {
-        Self.validate(methods)
-        let components = Self.components(for: url)
+    public init(url: URL, methods: Set<Mock.HTTPMethod>? = nil, matchType: URLMatchType = .full) throws {
+        try Self.validate(methods)
+        let components = try Self.components(for: url)
         self.methods = methods
         switch matchType {
         case .full:
@@ -38,12 +38,12 @@ public struct RequestPattern: Hashable, Sendable {
     /// - Parameters:
     ///   - fileExtensions: Extensions to accept; one leading dot is ignored.
     ///   - methods: The accepted methods, or `nil` to accept any method.
-    public init(fileExtensions: Set<String>, methods: Set<Mock.HTTPMethod>? = nil) {
-        Self.validate(methods)
+    public init(fileExtensions: Set<String>, methods: Set<Mock.HTTPMethod>? = nil) throws {
+        try Self.validate(methods)
         let normalized = Set(fileExtensions.map { value in
             (value.hasPrefix(".") ? String(value.dropFirst()) : value).lowercased()
         })
-        precondition(!normalized.isEmpty && !normalized.contains(""), "At least one non-empty file extension is required")
+        guard !normalized.isEmpty && !normalized.contains("") else { throw MockConfigurationError.noFileExtensions }
         kind = .fileExtensions(normalized)
         self.methods = methods
     }
@@ -70,13 +70,13 @@ public struct RequestPattern: Hashable, Sendable {
     var constrainedMethods: Set<Mock.HTTPMethod>? { methods }
     var isExtension: Bool { if case .fileExtensions = kind { return true }; return false }
 
-    private static func validate(_ methods: Set<Mock.HTTPMethod>?) {
-        if let methods { precondition(!methods.isEmpty, "At least one HTTP method is required") }
+    private static func validate(_ methods: Set<Mock.HTTPMethod>?) throws {
+        if let methods, methods.isEmpty { throw MockConfigurationError.noMethods }
     }
 
-    private static func components(for url: URL) -> URLComponents {
+    private static func components(for url: URL) throws -> URLComponents {
         guard let result = optionalComponents(for: url) else {
-            preconditionFailure("The URL cannot be represented by URLComponents")
+            throw MockConfigurationError.unsupportedURL(url.absoluteString)
         }
         return result
     }

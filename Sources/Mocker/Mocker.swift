@@ -12,27 +12,28 @@ public struct Mocker {
         /// HTTP/1.1.
         case http1_1 = "HTTP/1.1"
         /// HTTP/2.
-        case http2_0 = "HTTP/2.0"
+        case http2 = "HTTP/2.0"
     }
     /// The way unknown requests are handled.
     public enum Mode: Sendable {
         /// Intercept every request except those explicitly ignored.
-        case optout
+        case optOut
         /// Intercept only requests having a matching mock.
-        case optin
+        case optIn
     }
 
-    static let sharedRegistry = MockRegistry()
+    static let sharedRegistry: MockRegistry = {
+        do { return try MockRegistry() }
+        catch { preconditionFailure("Default registry configuration must remain valid: \(error)") }
+    }()
     /// The shared registry's handling mode.
     public static var mode: Mode { get { sharedRegistry.mode } set { sharedRegistry.mode = newValue } }
     /// The shared registry's mocked response HTTP version.
     public static var httpVersion: HTTPVersion { get { sharedRegistry.httpVersion } set { sharedRegistry.httpVersion = newValue } }
     /// Registers a mock in the shared registry.
     public static func register(_ mock: Mock) { sharedRegistry.register(mock) }
-    @available(*, deprecated, renamed: "ignore(_:matchType:)")
-    public static func ignore(_ url: URL, ignoreQuery: Bool) { ignore(url, matchType: ignoreQuery ? .ignoreQuery : .full) }
-    /// Ignores a URL pattern in the shared registry.
-    public static func ignore(_ url: URL, matchType: URLMatchType = .full) { sharedRegistry.ignore(RequestPattern(url: url, matchType: matchType)) }
+    /// Ignores a request pattern in the shared registry.
+    public static func ignore(_ pattern: RequestPattern) { sharedRegistry.ignore(pattern) }
     /// Returns whether the request should be intercepted by its selected registry.
     public static func shouldHandle(_ request: URLRequest) -> Bool { registry(for: request)?.shouldHandle(request) ?? MockRegistry.hasTag(request) }
     /// Removes mocks and ignored patterns from the shared registry.

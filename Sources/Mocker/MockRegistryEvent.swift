@@ -24,8 +24,15 @@ public struct MockedRequest: Sendable, Equatable {
     public let body: Data?
     /// Whether `body` is only a prefix of the request body.
     public let isBodyTruncated: Bool
+    /// A body read failure captured before observation, when one occurred.
+    public let bodyError: RequestBodyError?
     /// The pattern that selected the response.
     public let pattern: RequestPattern
+
+    /// Creates an immutable request snapshot.
+    public init(id: UUID, url: URL, method: Mock.HTTPMethod, headers: [String: String], body: Data?, isBodyTruncated: Bool, bodyError: RequestBodyError? = nil, pattern: RequestPattern) {
+        self.id = id; self.url = url; self.method = method; self.headers = headers; self.body = body; self.isBodyTruncated = isBodyTruncated; self.bodyError = bodyError; self.pattern = pattern
+    }
 }
 
 /// The terminal outcome of a selected mocked request.
@@ -42,7 +49,7 @@ public enum MockedRequestOutcome: Sendable, Equatable {
 
 /// A lifecycle event recorded by a mock registry.
 public enum MockRegistryEvent: Sendable, Equatable {
-    /// A selected request is about to invoke compatibility callbacks.
+    /// A selected request is about to begin URL loading.
     case started(MockedRequest)
     /// A selected request reached one terminal outcome.
     case completed(MockedRequest, outcome: MockedRequestOutcome)
@@ -54,6 +61,8 @@ public enum MockRegistryEvent: Sendable, Equatable {
 }
 
 /// A cancellable registry-event subscription.
+///
+/// The unchecked sendability is protected by the slot's lock.
 public final class MockRegistryObservation: @unchecked Sendable {
     final class Slot: @unchecked Sendable {
         private let condition = NSCondition()
