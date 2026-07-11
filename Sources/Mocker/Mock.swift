@@ -23,7 +23,7 @@ public struct Mock: Equatable, @unchecked Sendable {
     /// HTTP method definitions.
     ///
     /// See https://tools.ietf.org/html/rfc7231#section-4.3
-    public enum HTTPMethod: String, Sendable {
+    public enum HTTPMethod: String, Hashable, Sendable {
         case options = "OPTIONS"
         case get     = "GET"
         case head    = "HEAD"
@@ -80,6 +80,13 @@ public struct Mock: Equatable, @unchecked Sendable {
 
     /// The data which will be returned as the response based on the HTTP Method.
     private let data: [HTTPMethod: Data]
+
+    var responseMethods: Set<HTTPMethod> { Set(data.keys) }
+
+    var requestPattern: RequestPattern {
+        if let fileExtensions { return RequestPattern(fileExtensions: Set(fileExtensions), methods: responseMethods) }
+        return RequestPattern(url: request.url!, methods: responseMethods, matchType: ignoreQuery ? .ignoreQuery : .full)
+    }
 
     /// Add a delay to a certain mock, which makes the response returned later.
     public var delay: DispatchTimeInterval?
@@ -312,7 +319,7 @@ public struct Mock: Equatable, @unchecked Sendable {
     /// - Parameter request: The request to match data for.
     /// - Returns: The `Data` which matches the request. Will be `nil` if no data is registered for the request `HTTPMethod`.
     func data(for request: URLRequest) -> Data? {
-        guard let requestHTTPMethod = Mock.HTTPMethod(rawValue: request.httpMethod ?? "") else { return nil }
+        guard let requestHTTPMethod = Mock.HTTPMethod(rawValue: request.httpMethod ?? Mock.HTTPMethod.get.rawValue) else { return nil }
         return data[requestHTTPMethod]
     }
 

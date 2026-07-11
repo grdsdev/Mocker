@@ -251,9 +251,24 @@ If you want to set the original mode back, you have just to set it to `.optout`.
 Mocker.mode = .optout
 ```
 
-`Mocker.mode`, `Mocker.httpVersion`, and the registry are process-wide. Access is
-thread-safe, but state is not isolated between tests. Test cases that call
-`removeAll()` or change global configuration must not run concurrently.
+The static `Mocker` API uses a process-wide compatibility registry. Tests that run
+concurrently can instead create isolated registries and scope request copies without
+changing their URL, headers, or body:
+
+```swift
+let registry = MockRegistry(mode: .optin)
+registry.register(Mock(url: endpoint, statusCode: 200, data: [.get: payload]))
+
+let configuration = URLSessionConfiguration.ephemeral
+configuration.protocolClasses = [MockingURLProtocol.self]
+let session = URLSession(configuration: configuration)
+let request = registry.scopedRequest(from: URLRequest(url: endpoint))
+session.dataTask(with: request).resume()
+```
+
+Use `RequestPattern` with `register(_:matching:)` or `ignore(_:)` when matching
+identity should be explicit. Registry mode, HTTP version, mocks, ignored patterns,
+and `removeAll()` are isolated from every other registry.
 
 ##### Mock errors
 

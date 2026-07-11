@@ -49,9 +49,10 @@ open class MockingURLProtocol: URLProtocol {
         lifecycleLock.unlock()
 
         guard
-            let mock = Mocker.mock(for: request),
+            let decision = Mocker.decision(for: request),
+            let mock = Optional(decision.mock),
             let requestURL = request.url,
-            let response = HTTPURLResponse(url: requestURL, statusCode: mock.statusCode, httpVersion: Mocker.httpVersion.rawValue, headerFields: mock.headers),
+            let response = HTTPURLResponse(url: requestURL, statusCode: mock.statusCode, httpVersion: decision.httpVersion.rawValue, headerFields: mock.headers),
             let data = mock.data(for: request)
         else {
             guard claimFinished() else { return }
@@ -89,7 +90,9 @@ open class MockingURLProtocol: URLProtocol {
 
     private func finishRequest(for mock: Mock, data: Data, response: HTTPURLResponse) {
         if let redirectLocation = data.redirectLocation {
-            self.client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: redirectLocation), redirectResponse: response)
+            let redirected = URLRequest(url: redirectLocation)
+            let scoped = Mocker.registry(for: request)?.scopedRequest(from: redirected) ?? redirected
+            self.client?.urlProtocol(self, wasRedirectedTo: scoped, redirectResponse: response)
         } else if let requestError = mock.requestError {
             self.client?.urlProtocol(self, didFailWithError: requestError)
         } else {
