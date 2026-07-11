@@ -15,13 +15,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Report Swift version
-        run: swift --version
+        run: xcodebuild -version && swift --version
       - name: Run Tests
         run: swift test
 
   linux-run-tests:
     name: Unit Tests (Linux)
     runs-on: ubuntu-latest
+    container: swift:6.0
     steps:
       - uses: actions/checkout@v4
       - name: Report Swift version
@@ -30,7 +31,7 @@ jobs:
         run: swift test
 
   complete-concurrency:
-    name: Complete Concurrency Checking (Swift 5)
+    name: Swift 6 Complete Concurrency
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,3 +39,28 @@ jobs:
         run: swift --version
       - name: Run Tests with Complete Concurrency Checking
         run: swift test -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+
+  product-builds:
+    name: Build Products
+    runs-on: macos-15
+    strategy:
+      matrix:
+        product: [Mocker, MockerXCTest, MockerTesting]
+    steps:
+      - uses: actions/checkout@v4
+      - run: xcodebuild -version && swift --version
+      - run: swift build --product ${{ matrix.product }}
+
+  apple-platforms:
+    name: Compile ${{ matrix.destination }}
+    runs-on: macos-15
+    strategy:
+      matrix:
+        destination:
+          - generic/platform=iOS
+          - generic/platform=tvOS
+          - generic/platform=watchOS
+    steps:
+      - uses: actions/checkout@v4
+      - run: xcodebuild -version && swift --version
+      - run: xcodebuild -scheme Mocker -destination '${{ matrix.destination }}' build CODE_SIGNING_ALLOWED=NO

@@ -1,4 +1,4 @@
-// swift-tools-version:5.5
+// swift-tools-version:6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -6,10 +6,10 @@ import PackageDescription
 let package = Package(
     name: "Mocker",
     platforms: [
-        .macOS(.v10_15),
-        .iOS(.v11),
-        .tvOS(.v12),
-        .watchOS(.v6)],
+        .macOS(.v13),
+        .iOS(.v16),
+        .tvOS(.v16),
+        .watchOS(.v9)],
     products: [
         .library(name: "Mocker", targets: ["Mocker"]),
         .library(name: "MockerXCTest", targets: ["MockerXCTest"]),
@@ -29,4 +29,4 @@ let package = Package(
             ]
         )
     ],
-    swiftLanguageVersions: [.v5])
+    swiftLanguageModes: [.v6])
