@@ -119,20 +119,23 @@ private extension URLRequest {
         guard let bodyStream = self.httpBodyStream else { return nil }
 
         bodyStream.open()
+        defer { bodyStream.close() }
 
         // Will read 16 chars per iteration. Can use bigger buffer if needed
         let bufferSize: Int = 16
-        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
         var data = Data()
 
-        while bodyStream.hasBytesAvailable {
-            let readData = bodyStream.read(buffer, maxLength: bufferSize)
-            data.append(buffer, count: readData)
+        var buffer = [UInt8](repeating: 0, count: bufferSize)
+        while true {
+            let bytesRead = bodyStream.read(&buffer, maxLength: buffer.count)
+            if bytesRead > 0 {
+                data.append(contentsOf: buffer.prefix(bytesRead))
+            } else if bytesRead < 0 {
+                // Phase 3 can expose this as an explicit decoding/read error.
+                return nil
+            } else {
+                return bodyStream.streamStatus == .atEnd ? data : nil
+            }
         }
-
-        buffer.deallocate()
-        bodyStream.close()
-
-        return data
     }
 }

@@ -13,7 +13,9 @@ jobs:
     name: Unit Tests (macOS)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+      - name: Report Swift version
+        run: swift --version
       - name: Run Tests
         run: swift test
 
@@ -21,6 +23,18 @@ jobs:
     name: Unit Tests (Linux)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+      - name: Report Swift version
+        run: swift --version
       - name: Run Tests
         run: swift test
+
+  complete-concurrency:
+    name: Complete Concurrency Checking (Swift 5)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Report Swift version
+        run: swift --version
+      - name: Run Tests with Complete Concurrency Checking
+        run: swift test -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
