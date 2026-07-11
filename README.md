@@ -102,6 +102,9 @@ URLSession.shared.dataTask(with: originalURL) { (data, response, error) in
 }.resume()
 ```
 
+Registration is synchronous: when `register()` or `Mocker.register(_:)` returns,
+the mock is visible to requests started on the next line.
+
 ##### Empty Responses
 ``` swift
 let originalURL = URL(string: "https://www.wetransfer.com/api/foobar")!
@@ -140,6 +143,9 @@ URLSession.shared.dataTask(with: originalURL) { (data, response, error) in
 ```
 
 ##### File extensions
+File-extension matching is case-insensitive. A registered value may include one
+leading dot (for example, `.png`).
+
 ```swift
 let imageURL = URL(string: "https://www.wetransfer.com/sample-image.png")!
 
@@ -225,10 +231,13 @@ Mocker.ignore(ignoredURL)
 // e.g. https://www.wetransfer.com?foo=bar would be ignored
 Mocker.ignore(ignoredURL, matchType: .ignoreQuery)
 
-// Ignore any requests that begin with the URL
+// Ignore requests on the same URL origin whose path is this path or a child path.
+// Query parameters and fragments are ignored; partial path segments do not match.
 // e.g. https://www.wetransfer.com/api/v1 would be ignored
 Mocker.ignore(ignoredURL, matchType: .prefix)
 ```
+
+Ignoring a URL is synchronous: the rule is active when `Mocker.ignore` returns.
 
 However, if you need the Mocker to catch only mocked URLs and ignore every other URL, you can set the `mode` attribute to `.optin`. 
 
@@ -241,6 +250,10 @@ If you want to set the original mode back, you have just to set it to `.optout`.
 ```swift
 Mocker.mode = .optout
 ```
+
+`Mocker.mode`, `Mocker.httpVersion`, and the registry are process-wide. Access is
+thread-safe, but state is not isolated between tests. Test cases that call
+`removeAll()` or change global configuration must not run concurrently.
 
 ##### Mock errors
 

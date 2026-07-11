@@ -8,7 +8,7 @@
 import Foundation
 
 /// How to check if one URL matches another.
-public enum URLMatchType {
+public enum URLMatchType: Sendable {
     /// Matches the full URL, including the query
     case full
     /// Matches the URL excluding the query
@@ -18,10 +18,12 @@ public enum URLMatchType {
 }
 
 extension URL {
-    /// Returns the base URL string build with the scheme, host and path. "https://www.wetransfer.com/v1/test?param=test" would be "https://www.wetransfer.com/v1/test".
+    /// Returns the URL string after removing only its query and fragment.
     var baseString: String? {
-        guard let scheme = scheme, let host = host else { return nil }
-        return scheme + "://" + host + path
+        guard var components = URLComponents(url: self, resolvingAgainstBaseURL: false) else { return nil }
+        components.query = nil
+        components.fragment = nil
+        return components.string
     }
     
     /// Checks if  this URL matches the passed URL using the provided match type.
@@ -38,7 +40,33 @@ extension URL {
         case .ignoreQuery:
             return baseString == otherURL.baseString
         case .prefix:
-            return absoluteString.hasPrefix(otherURL.absoluteString)
+            guard
+                let candidate = URLComponents(url: self, resolvingAgainstBaseURL: false),
+                let prefix = URLComponents(url: otherURL, resolvingAgainstBaseURL: false),
+                candidate.scheme?.lowercased() == prefix.scheme?.lowercased(),
+                candidate.host?.lowercased() == prefix.host?.lowercased(),
+                candidate.user == prefix.user,
+                candidate.password == prefix.password,
+                effectivePort(of: candidate) == effectivePort(of: prefix)
+            else { return false }
+
+            let prefixPath = normalizedPath(prefix.percentEncodedPath)
+            let candidatePath = normalizedPath(candidate.percentEncodedPath)
+            return candidatePath == prefixPath || candidatePath.hasPrefix(prefixPath + "/")
         }
+    }
+
+    private func effectivePort(of components: URLComponents) -> Int? {
+        if let port = components.port { return port }
+        switch components.scheme?.lowercased() {
+        case "http": return 80
+        case "https": return 443
+        default: return nil
+        }
+    }
+
+    private func normalizedPath(_ path: String) -> String {
+        guard path.count > 1, path.hasSuffix("/") else { return path }
+        return String(path.dropLast())
     }
 }

@@ -51,7 +51,7 @@ final class MockerTests: XCTestCase {
             expectation.fulfill()
         }.resume()
 
-        waitForExpectations(timeout: 10.0, handler: nil)
+        wait(for: [expectation], timeout: 10.0)
     }
 
     /// It should returned the register mocked image data as response for register file types.
@@ -70,7 +70,7 @@ final class MockerTests: XCTestCase {
             expectation.fulfill()
         }.resume()
 
-        waitForExpectations(timeout: 10.0, handler: nil)
+        wait(for: [expectation], timeout: 10.0)
     }
 
     /// It should ignore file extension mocks if a specific URL is mocked.
@@ -93,7 +93,7 @@ final class MockerTests: XCTestCase {
             expectation.fulfill()
         }.resume()
 
-        waitForExpectations(timeout: 10.0, handler: nil)
+        wait(for: [expectation], timeout: 10.0)
     }
 
     /// It should correctly ignore queries if set.
@@ -115,7 +115,7 @@ final class MockerTests: XCTestCase {
             expectation.fulfill()
         }.resume()
 
-        waitForExpectations(timeout: 10.0, handler: nil)
+        wait(for: [expectation], timeout: 10.0)
     }
 
     /// It should return the mocked JSON.
@@ -147,7 +147,7 @@ final class MockerTests: XCTestCase {
             expectation.fulfill()
         }.resume()
 
-        waitForExpectations(timeout: 10.0, handler: nil)
+        wait(for: [expectation], timeout: 10.0)
     }
     
     /// No Content-Type should be included in the headers
@@ -172,7 +172,7 @@ final class MockerTests: XCTestCase {
             expectation.fulfill()
         }.resume()
 
-        waitForExpectations(timeout: 10.0, handler: nil)
+        wait(for: [expectation], timeout: 10.0)
     }
 
     /// It should return the additional headers.
@@ -188,7 +188,7 @@ final class MockerTests: XCTestCase {
             expectation.fulfill()
         }.resume()
 
-        waitForExpectations(timeout: 10.0, handler: nil)
+        wait(for: [expectation], timeout: 10.0)
     }
 
     /// It should override existing mocks.
@@ -206,7 +206,7 @@ final class MockerTests: XCTestCase {
             expectation.fulfill()
         }.resume()
 
-        waitForExpectations(timeout: 10.0, handler: nil)
+        wait(for: [expectation], timeout: 10.0)
     }
 
     /// It should work with a custom URLSession.
@@ -229,7 +229,7 @@ final class MockerTests: XCTestCase {
             expectation.fulfill()
         }.resume()
 
-        waitForExpectations(timeout: 10.0, handler: nil)
+        wait(for: [expectation], timeout: 10.0)
     }
 
     /// It should be possible to test cancellation of requests with a delayed mock.
@@ -249,7 +249,7 @@ final class MockerTests: XCTestCase {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: {
             task.cancel()
         })
-        waitForExpectations(timeout: 10.0, handler: nil)
+        wait(for: [expectation], timeout: 10.0)
     }
 
     /// It should correctly handle redirect responses.
@@ -282,7 +282,7 @@ final class MockerTests: XCTestCase {
             expectation.fulfill()
         }.resume()
 
-        waitForExpectations(timeout: 10.0, handler: nil)
+        wait(for: [expectation], timeout: 10.0)
     }
 
     /// It should be possible to ignore URLs and not let them be handled.
@@ -329,6 +329,7 @@ final class MockerTests: XCTestCase {
     }
 
     /// It should call the onRequest and completion callbacks when a `Mock` is used and completed in the right order.
+    @available(*, deprecated, message: "Exercises the deprecated compatibility API")
     func testMockCallbacks() {
         let onRequestExpectation = expectation(description: "Data request should start")
         let completionExpectation = expectation(description: "Data request should succeed")
@@ -347,6 +348,7 @@ final class MockerTests: XCTestCase {
     }
 
     /// It should report post body arguments if they exist.
+    @available(*, deprecated, message: "Exercises the deprecated compatibility API")
     func testOnRequestLegacyPostBodyParameters() throws {
         let onRequestExpectation = expectation(description: "Data request should start")
 
@@ -512,7 +514,7 @@ final class MockerTests: XCTestCase {
         let mock = Mock(contentType: .json, statusCode: 200, data: [.get: Data()])
         mock.register()
         Mocker.removeAll()
-        XCTAssertTrue(Mocker.shared.mocks.isEmpty)
+        XCTAssertNil(Mocker.mock(for: mock.request))
     }
 
     /// It should correctly add two mocks for the same URL if the HTTP method is different.
@@ -585,7 +587,7 @@ final class MockerTests: XCTestCase {
             expectation.fulfill()
         }.resume()
 
-        waitForExpectations(timeout: 10.0, handler: nil)
+        wait(for: [expectation], timeout: 10.0)
     }
 
     /// It should cache response
@@ -619,7 +621,7 @@ final class MockerTests: XCTestCase {
             expectation.fulfill()
         }.resume()
 
-        waitForExpectations(timeout: 10.0, handler: nil)
+        wait(for: [expectation], timeout: 10.0)
     }
 
     /// It should process unknown URL

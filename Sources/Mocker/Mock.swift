@@ -15,7 +15,10 @@ import FoundationNetworking
 #endif
 
 /// A Mock which can be used for mocking data requests with the `Mocker` by calling `Mocker.register(...)`.
-public struct Mock: Equatable {
+/// Registration stores a value copy and Mocker never mutates that stored copy.
+/// Callbacks are invoked only after the copy leaves synchronized storage. Their
+/// captures remain unchecked until callback state is separated from Mock in Phase 3.
+public struct Mock: Equatable, @unchecked Sendable {
 
     /// HTTP method definitions.
     ///
@@ -113,10 +116,11 @@ public struct Mock: Equatable {
         }
         
         self.urlToMock = url
-        let generatedURL = URL(string: "https://mocked.wetransfer.com/\(contentType?.name ?? "no-content")/\(statusCode)/\(data.keys.first!.rawValue)")!
+        let canonicalMethod = data.keys.sorted { $0.rawValue < $1.rawValue }.first!
+        let generatedURL = URL(string: "https://mocked.wetransfer.com/\(contentType?.name ?? "no-content")/\(statusCode)/\(canonicalMethod.rawValue)")!
         self.generatedURL = generatedURL
         var request = URLRequest(url: url ?? generatedURL)
-        request.httpMethod = data.keys.first!.rawValue
+        request.httpMethod = canonicalMethod.rawValue
         self.request = request
         self.ignoreQuery = ignoreQuery
         self.requestError = requestError
@@ -131,7 +135,15 @@ public struct Mock: Equatable {
         }
         self.headers = headers
 
-        self.fileExtensions = fileExtensions?.map({ $0.replacingOccurrences(of: ".", with: "") })
+        if let fileExtensions {
+            precondition(!fileExtensions.isEmpty, "At least one file extension is required")
+            self.fileExtensions = fileExtensions.map {
+                let normalized = $0.hasPrefix(".") ? String($0.dropFirst()) : $0
+                return normalized.lowercased()
+            }
+        } else {
+            self.fileExtensions = nil
+        }
     }
 
     /// Creates a `Mock` for the given data type. The mock will be automatically matched based on a URL created from the given parameters.
@@ -311,9 +323,9 @@ public struct Mock: Equatable {
         if let fileExtensions = mock.fileExtensions {
             // If the mock contains a file extension, this should always be used to match for.
             guard let pathExtension = request.url?.pathExtension else { return false }
-            return fileExtensions.contains(pathExtension)
+            return fileExtensions.contains(pathExtension.lowercased())
         } else if mock.ignoreQuery {
-            return mock.request.url!.baseString == request.url?.baseString && mock.data.keys.contains(requestHTTPMethod)
+            return mock.request.url!.matches(request.url, matchType: .ignoreQuery) && mock.data.keys.contains(requestHTTPMethod)
         }
 
         return mock.request.url!.absoluteString == request.url?.absoluteString && mock.data.keys.contains(requestHTTPMethod)

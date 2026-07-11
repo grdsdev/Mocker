@@ -14,6 +14,12 @@ import FoundationNetworking
 /// The protocol which can be used to send Mocked data back. Use the `Mocker` to register `Mock` data
 open class MockingURLProtocol: URLProtocol {
 
+    private enum LifecycleState {
+        case pending
+        case finished
+        case cancelled
+    }
+
     enum Error: Swift.Error, LocalizedError, CustomDebugStringConvertible {
         case missingMockedData(url: String)
         case explicitMockFailure(url: String)
@@ -33,14 +39,22 @@ open class MockingURLProtocol: URLProtocol {
     }
 
     private var responseWorkItem: DispatchWorkItem?
+    private let lifecycleLock = NSLock()
+    private var lifecycleState: LifecycleState = .pending
 
     /// Returns Mocked data based on the mocks register in the `Mocker`. Will end up in an error when no Mock data is found for the request.
     override public func startLoading() {
+        lifecycleLock.lock()
+        lifecycleState = .pending
+        lifecycleLock.unlock()
+
         guard
             let mock = Mocker.mock(for: request),
-            let response = HTTPURLResponse(url: mock.request.url!, statusCode: mock.statusCode, httpVersion: Mocker.httpVersion.rawValue, headerFields: mock.headers),
+            let requestURL = request.url,
+            let response = HTTPURLResponse(url: requestURL, statusCode: mock.statusCode, httpVersion: Mocker.httpVersion.rawValue, headerFields: mock.headers),
             let data = mock.data(for: request)
         else {
+            guard claimFinished() else { return }
             print("\n\n 🚨 No mocked data found for url \(String(describing: request.url?.absoluteString)) method \(String(describing: request.httpMethod)). Did you forget to use `register()`? 🚨 \n\n")
             client?.urlProtocol(self, didFailWithError: Error.missingMockedData(url: String(describing: request.url?.absoluteString)))
             return
@@ -52,16 +66,25 @@ open class MockingURLProtocol: URLProtocol {
         mock.onRequestExpectation?.fulfill()
 
         guard let delay = mock.delay else {
+            guard claimFinished() else { return }
             finishRequest(for: mock, data: data, response: response)
             return
         }
 
-        self.responseWorkItem = DispatchWorkItem(block: { [weak self] in
+        let workItem = DispatchWorkItem(block: { [weak self] in
             guard let self = self else { return }
+            guard self.claimFinished() else { return }
             self.finishRequest(for: mock, data: data, response: response)
         })
 
-        DispatchQueue.global(qos: DispatchQoS.QoSClass.userInitiated).asyncAfter(deadline: .now() + delay, execute: responseWorkItem!)
+        lifecycleLock.lock()
+        guard lifecycleState == .pending else {
+            lifecycleLock.unlock()
+            return
+        }
+        responseWorkItem = workItem
+        lifecycleLock.unlock()
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
     private func finishRequest(for mock: Mock, data: Data, response: HTTPURLResponse) {
@@ -79,9 +102,25 @@ open class MockingURLProtocol: URLProtocol {
         mock.onCompletedExpectation?.fulfill()
     }
 
-    /// Implementation does nothing, but is needed for a valid inheritance of URLProtocol.
     override public func stopLoading() {
-        responseWorkItem?.cancel()
+        lifecycleLock.lock()
+        guard lifecycleState == .pending else {
+            lifecycleLock.unlock()
+            return
+        }
+        lifecycleState = .cancelled
+        let workItem = responseWorkItem
+        lifecycleLock.unlock()
+        workItem?.cancel()
+    }
+
+    private func claimFinished() -> Bool {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        guard lifecycleState == .pending else { return false }
+        lifecycleState = .finished
+        responseWorkItem = nil
+        return true
     }
 
     /// Simply sends back the passed request. Implementation is needed for a valid inheritance of URLProtocol.
