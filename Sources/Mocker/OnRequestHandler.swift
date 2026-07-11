@@ -16,7 +16,7 @@ public struct OnRequestHandler {
 
     public typealias OnRequest<HTTPBody> = (_ request: URLRequest, _ httpBody: HTTPBody?) -> Void
 
-    private let internalCallback: (_ request: URLRequest) -> Void
+    private let internalCallback: (_ request: URLRequest, _ body: Data?) -> Void
     let legacyCallback: Mock.OnRequest?
 
     /// Creates a new request handler using the given `HTTPBody` type, which can be any `Decodable`.
@@ -33,9 +33,9 @@ public struct OnRequestHandler {
     ///   - jsonDecoder: The decoder to use for decoding the request body.
     ///   - callback: The callback which will be called just before the request executes.
     public init<HTTPBody: Decodable>(httpBodyType: HTTPBody.Type?, jsonDecoder: JSONDecoder, callback: @escaping OnRequest<HTTPBody>) {
-        self.internalCallback = { request in
+        self.internalCallback = { request, capturedBody in
             guard
-                let httpBody = request.httpBodyStreamData() ?? request.httpBody,
+                let httpBody = capturedBody,
                 let decodedObject = try? jsonDecoder.decode(HTTPBody.self, from: httpBody)
             else {
                 callback(request, nil)
@@ -49,14 +49,14 @@ public struct OnRequestHandler {
     /// Creates a new request handler using the given callback to call on request without parsing the body arguments.
     /// - Parameter requestCallback: The callback which will be executed just before the request executes, containing the request.
     public init(requestCallback: @escaping (_ request: URLRequest) -> Void) {
-        self.internalCallback = requestCallback
+        self.internalCallback = { request, _ in requestCallback(request) }
         legacyCallback = nil
     }
 
     /// Creates a new request handler using the given callback to call on request without parsing the body arguments and without passing the request.
     /// - Parameter callback: The callback which will be executed just before the request executes.
     public init(callback: @escaping () -> Void) {
-        self.internalCallback = { _ in
+        self.internalCallback = { _, _ in
             callback()
         }
         legacyCallback = nil
@@ -65,9 +65,9 @@ public struct OnRequestHandler {
     /// Creates a new request handler using the given callback to call on request.
     /// - Parameter jsonDictionaryCallback: The callback that executes just before the request executes, containing the HTTP Body Arguments as a JSON Object Dictionary.
     public init(jsonDictionaryCallback: @escaping ((_ request: URLRequest, _ httpBodyArguments: [String: Any]?) -> Void)) {
-        self.internalCallback = { request in
+        self.internalCallback = { request, capturedBody in
             guard
-                let httpBody = request.httpBodyStreamData() ?? request.httpBody,
+                let httpBody = capturedBody,
                 let jsonObject = try? JSONSerialization.jsonObject(with: httpBody, options: .fragmentsAllowed) as? [String: Any]
             else {
                 jsonDictionaryCallback(request, nil)
@@ -81,9 +81,9 @@ public struct OnRequestHandler {
     /// Creates a new request handler using the given callback to call on request.
     /// - Parameter jsonDictionaryCallback: The callback that executes just before the request executes, containing the HTTP Body Arguments as a JSON Object Array.
     public init(jsonArrayCallback: @escaping ((_ request: URLRequest, _ httpBodyArguments: [[String: Any]]?) -> Void)) {
-        self.internalCallback = { request in
+        self.internalCallback = { request, capturedBody in
             guard
-                let httpBody = request.httpBodyStreamData() ?? request.httpBody,
+                let httpBody = capturedBody,
                 let jsonObject = try? JSONSerialization.jsonObject(with: httpBody, options: .fragmentsAllowed) as? [[String: Any]]
             else {
                 jsonArrayCallback(request, nil)
@@ -95,9 +95,9 @@ public struct OnRequestHandler {
     }
 
     init(legacyCallback: Mock.OnRequest?) {
-        self.internalCallback = { request in
+        self.internalCallback = { request, capturedBody in
             guard
-                let httpBody = request.httpBodyStreamData() ?? request.httpBody,
+                let httpBody = capturedBody,
                 let jsonObject = try? JSONSerialization.jsonObject(with: httpBody, options: .fragmentsAllowed) as? [String: Any]
             else {
                 legacyCallback?(request, nil)
@@ -108,12 +108,16 @@ public struct OnRequestHandler {
         self.legacyCallback = legacyCallback
     }
 
+    func handleRequest(_ request: URLRequest, body: Data?) {
+        internalCallback(request, body)
+    }
+
     func handleRequest(_ request: URLRequest) {
-        internalCallback(request)
+        handleRequest(request, body: request.httpBodyStreamData() ?? request.httpBody)
     }
 }
 
-private extension URLRequest {
+extension URLRequest {
     /// We need to use the http body stream data as the URLRequest once launched converts the `httpBody` to this stream of data.
     func httpBodyStreamData() -> Data? {
         guard let bodyStream = self.httpBodyStream else { return nil }

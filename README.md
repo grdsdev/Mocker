@@ -270,6 +270,12 @@ Use `RequestPattern` with `register(_:matching:)` or `ignore(_:)` when matching
 identity should be explicit. Registry mode, HTTP version, mocks, ignored patterns,
 and `removeAll()` are isolated from every other registry.
 
+Registries also expose bounded lifecycle history through `events`, synchronous
+future-event subscriptions through `observeEvents`, and explicit history reset with
+`removeAllEvents()`. Import `MockerXCTest` for registry-backed expectations or
+`MockerTesting` for cancellation-safe async event waits. Request body capture is
+disabled by default and can be configured when creating a registry.
+
 ##### Mock errors
 
 You can request a `Mock` to return an error, allowing testing of error handling.

@@ -95,21 +95,31 @@ public struct Mock: Equatable, @unchecked Sendable {
     public var cacheStoragePolicy: URLCache.StoragePolicy = .notAllowed
 
     /// The callback which will be executed everytime this `Mock` was completed. Can be used within unit tests for validating that a request has been executed. The callback must be set before calling `register`.
-    public var completion: (() -> Void)?
+    @available(*, deprecated, message: "Observe MockRegistry completion events instead.")
+    public var completion: (() -> Void)? {
+        get { compatibilityCompletion }
+        set { compatibilityCompletion = newValue }
+    }
+    var compatibilityCompletion: (() -> Void)?
 
     /// The callback which will be executed everytime this `Mock` was started. Can be used within unit tests for validating that a request has been started. The callback must be set before calling `register`.
     @available(*, deprecated, message: "Use `onRequestHandler` instead.")
     public var onRequest: OnRequest? {
         set {
-            onRequestHandler = OnRequestHandler(legacyCallback: newValue)
+            compatibilityOnRequestHandler = OnRequestHandler(legacyCallback: newValue)
         }
         get {
-            onRequestHandler?.legacyCallback
+            compatibilityOnRequestHandler?.legacyCallback
         }
     }
 
     /// The on request handler which will be executed everytime this `Mock` was started. Can be used within unit tests for validating that a request has been started. The handler must be set before calling `register`.
-    public var onRequestHandler: OnRequestHandler?
+    @available(*, deprecated, message: "Observe MockRegistry start events and inspect MockedRequest instead.")
+    public var onRequestHandler: OnRequestHandler? {
+        get { compatibilityOnRequestHandler }
+        set { compatibilityOnRequestHandler = newValue }
+    }
+    var compatibilityOnRequestHandler: OnRequestHandler?
 
     /// Can only be set internally as it's used by the `expectationForRequestingMock(_:)` method.
     var onRequestExpectation: XCTestExpectation?

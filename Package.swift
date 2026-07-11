@@ -11,15 +11,19 @@ let package = Package(
         .tvOS(.v12),
         .watchOS(.v6)],
     products: [
-        .library(name: "Mocker", targets: ["Mocker"])
+        .library(name: "Mocker", targets: ["Mocker"]),
+        .library(name: "MockerXCTest", targets: ["MockerXCTest"]),
+        .library(name: "MockerTesting", targets: ["MockerTesting"])
     ],
     targets: [
         .target(
             name: "Mocker"
         ),
+        .target(name: "MockerXCTest", dependencies: ["Mocker"]),
+        .target(name: "MockerTesting", dependencies: ["Mocker"]),
         .testTarget(
             name: "MockerTests",
-            dependencies: ["Mocker"],
+            dependencies: ["Mocker", "MockerXCTest", "MockerTesting"],
             resources: [
                 .process("Resources")
             ]

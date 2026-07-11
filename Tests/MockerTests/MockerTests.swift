@@ -12,6 +12,7 @@ import FoundationNetworking
 #endif
 @testable import Mocker
 
+@available(*, deprecated, message: "Compatibility coverage for APIs removed in Phase 5")
 final class MockerTests: XCTestCase {
     struct Framework {
         let name: String?

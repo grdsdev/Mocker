@@ -5,6 +5,7 @@ import FoundationNetworking
 
 struct RequestDecision {
     let mock: Mock
+    let pattern: RequestPattern
     let httpVersion: Mocker.HTTPVersion
 }
 
@@ -16,6 +17,8 @@ public final class MockRegistry: @unchecked Sendable {
         var ignored: Set<RequestPattern> = []
         var mode: Mocker.Mode
         var httpVersion: Mocker.HTTPVersion
+        var events: [MockRegistryEvent] = []
+        var observers: [UUID: MockRegistryObservation.Slot] = [:]
     }
     private final class WeakBox { weak var value: MockRegistry?; init(_ value: MockRegistry) { self.value = value } }
     private final class Directory: @unchecked Sendable {
@@ -27,11 +30,17 @@ public final class MockRegistry: @unchecked Sendable {
     private static let directory = Directory()
 
     private let identifier = UUID().uuidString
+    private let historyCapacity: Int
+    private let bodyCapturePolicy: RequestBodyCapturePolicy
     private let lock = NSLock()
     private var state: State
 
     /// Creates an independent registry.
-    public init(mode: Mocker.Mode = .optout, httpVersion: Mocker.HTTPVersion = .http1_1) {
+    public init(mode: Mocker.Mode = .optout, httpVersion: Mocker.HTTPVersion = .http1_1, historyCapacity: Int = 100, bodyCapturePolicy: RequestBodyCapturePolicy = .none) {
+        precondition(historyCapacity >= 0, "History capacity cannot be negative")
+        if case .upToBytes(let limit) = bodyCapturePolicy { precondition(limit >= 0, "Body capture limit cannot be negative") }
+        self.historyCapacity = historyCapacity
+        self.bodyCapturePolicy = bodyCapturePolicy
         state = State(mode: mode, httpVersion: httpVersion)
         _ = URLProtocol.registerClass(MockingURLProtocol.self)
     }
@@ -59,6 +68,24 @@ public final class MockRegistry: @unchecked Sendable {
     /// Removes all mocks and ignored patterns without changing mode or HTTP version.
     public func removeAll() { withState { $0.entries.removeAll(); $0.ignored.removeAll() } }
 
+    /// A deterministic copy of recorded events. This operation is `O(n)`.
+    public var events: [MockRegistryEvent] { withState { $0.events } }
+
+    /// Returns recorded events selected by a pattern. This operation is `O(n)`.
+    public func events(matching pattern: RequestPattern) -> [MockRegistryEvent] {
+        withState { $0.events.filter { pattern.matches($0.request.urlRequest) } }
+    }
+
+    /// Removes all recorded events without changing mocks or configuration.
+    public func removeAllEvents() { withState { $0.events.removeAll() } }
+
+    /// Observes future events immediately on the thread that records them.
+    public func observeEvents(matching pattern: RequestPattern? = nil, using observer: @escaping @Sendable (MockRegistryEvent) -> Void) -> MockRegistryObservation {
+        let id = UUID(), slot = MockRegistryObservation.Slot(pattern: pattern, observer: observer)
+        withState { $0.observers[id] = slot }
+        return MockRegistryObservation(slot: slot) { [weak self] in self?.withState { $0.observers[id] = nil } }
+    }
+
     /// Returns a publicly identical request copy routed to this registry.
     public func scopedRequest(from request: URLRequest) -> URLRequest {
         Self.directory.lock.lock()
@@ -80,7 +107,40 @@ public final class MockRegistry: @unchecked Sendable {
     }
 
     func decision(for request: URLRequest) -> RequestDecision? {
-        withState { state in Self.find(request, in: state.entries).map { RequestDecision(mock: $0, httpVersion: state.httpVersion) } }
+        withState { state in Self.findEntry(request, in: state.entries).map { RequestDecision(mock: $0.mock, pattern: $0.pattern, httpVersion: state.httpVersion) } }
+    }
+
+    func snapshot(for request: URLRequest, pattern: RequestPattern, id: UUID, bodyData: Data?) -> MockedRequest? {
+        guard let url = request.url, let method = Mock.HTTPMethod(rawValue: request.httpMethod ?? "GET") else { return nil }
+        let source = bodyData
+        let capture: (Data?, Bool)
+        switch bodyCapturePolicy {
+        case .none: capture = (nil, false)
+        case .complete: capture = (source, false)
+        case .upToBytes(let limit):
+            capture = source.map { (Data($0.prefix(limit)), $0.count > limit) } ?? (nil, false)
+        }
+        return MockedRequest(id: id, url: url, method: method, headers: request.allHTTPHeaderFields ?? [:], body: capture.0, isBodyTruncated: capture.1, pattern: pattern)
+    }
+
+    func record(_ event: MockRegistryEvent) {
+        let observers: [MockRegistryObservation.Slot] = withState { state in
+            if historyCapacity > 0 {
+                state.events.append(event)
+                while Set(state.events.map(\.request.id)).count > historyCapacity {
+                    let completedIDs = Set(state.events.compactMap { event -> UUID? in
+                        if case .completed(let request, _) = event { return request.id }
+                        return nil
+                    })
+                    guard let oldestCompleteID = state.events.first(where: { completedIDs.contains($0.request.id) })?.request.id else { break }
+                    state.events.removeAll { $0.request.id == oldestCompleteID }
+                }
+            }
+            return state.observers.values.filter { slot in
+                slot.pattern.map { $0.matches(event.request.urlRequest) } ?? true
+            }
+        }
+        observers.forEach { $0.invoke(event) }
     }
 
     static func registry(for request: URLRequest) -> MockRegistry? {
@@ -93,11 +153,21 @@ public final class MockRegistry: @unchecked Sendable {
     private static func tag(in request: URLRequest) -> String? { URLProtocol.property(forKey: propertyKey, in: request) as? String }
 
     private static func find(_ request: URLRequest, in entries: [Entry]) -> Mock? {
-        entries.reversed().first(where: { !$0.pattern.isExtension && $0.pattern.matches(request) })?.mock
-            ?? entries.reversed().first(where: { $0.pattern.isExtension && $0.pattern.matches(request) })?.mock
+        findEntry(request, in: entries)?.mock
+    }
+
+    private static func findEntry(_ request: URLRequest, in entries: [Entry]) -> Entry? {
+        entries.reversed().first(where: { !$0.pattern.isExtension && $0.pattern.matches(request) })
+            ?? entries.reversed().first(where: { $0.pattern.isExtension && $0.pattern.matches(request) })
     }
 
     private func withState<Result>(_ body: (inout State) throws -> Result) rethrows -> Result {
         lock.lock(); defer { lock.unlock() }; return try body(&state)
+    }
+}
+
+private extension MockedRequest {
+    var urlRequest: URLRequest {
+        var request = URLRequest(url: url); request.httpMethod = method.rawValue; return request
     }
 }

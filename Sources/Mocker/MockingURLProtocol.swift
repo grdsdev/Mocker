@@ -41,6 +41,8 @@ open class MockingURLProtocol: URLProtocol {
     private var responseWorkItem: DispatchWorkItem?
     private let lifecycleLock = NSLock()
     private var lifecycleState: LifecycleState = .pending
+    private var observedRequest: MockedRequest?
+    private weak var selectedRegistry: MockRegistry?
 
     /// Returns Mocked data based on the mocks register in the `Mocker`. Will end up in an error when no Mock data is found for the request.
     override public func startLoading() {
@@ -61,8 +63,16 @@ open class MockingURLProtocol: URLProtocol {
             return
         }
 
-        if let onRequestHandler = mock.onRequestHandler {
-            onRequestHandler.handleRequest(request)
+
+        let registry = Mocker.registry(for: request)
+        let bodyData = request.httpBodyStreamData() ?? request.httpBody
+        let snapshot = registry?.snapshot(for: request, pattern: decision.pattern, id: UUID(), bodyData: bodyData)
+        selectedRegistry = registry
+        observedRequest = snapshot
+        if let snapshot { registry?.record(.started(snapshot)) }
+
+        if let onRequestHandler = mock.compatibilityOnRequestHandler {
+            onRequestHandler.handleRequest(request, body: bodyData)
         }
         mock.onRequestExpectation?.fulfill()
 
@@ -89,19 +99,24 @@ open class MockingURLProtocol: URLProtocol {
     }
 
     private func finishRequest(for mock: Mock, data: Data, response: HTTPURLResponse) {
+        let outcome: MockedRequestOutcome
         if let redirectLocation = data.redirectLocation {
             let redirected = URLRequest(url: redirectLocation)
             let scoped = Mocker.registry(for: request)?.scopedRequest(from: redirected) ?? redirected
             self.client?.urlProtocol(self, wasRedirectedTo: scoped, redirectResponse: response)
+            outcome = .redirected(to: redirectLocation)
         } else if let requestError = mock.requestError {
             self.client?.urlProtocol(self, didFailWithError: requestError)
+            outcome = .failed(description: String(describing: requestError))
         } else {
             self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: mock.cacheStoragePolicy)
             self.client?.urlProtocol(self, didLoad: data)
             self.client?.urlProtocolDidFinishLoading(self)
+            outcome = .response(statusCode: mock.statusCode)
         }
 
-        mock.completion?()
+        if let observedRequest { selectedRegistry?.record(.completed(observedRequest, outcome: outcome)) }
+        mock.compatibilityCompletion?()
         mock.onCompletedExpectation?.fulfill()
     }
 
@@ -113,8 +128,11 @@ open class MockingURLProtocol: URLProtocol {
         }
         lifecycleState = .cancelled
         let workItem = responseWorkItem
+        let observedRequest = self.observedRequest
+        let registry = selectedRegistry
         lifecycleLock.unlock()
         workItem?.cancel()
+        if let observedRequest { registry?.record(.completed(observedRequest, outcome: .cancelled)) }
     }
 
     private func claimFinished() -> Bool {

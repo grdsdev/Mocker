@@ -145,6 +145,7 @@ final class RequestBodyStreamTests: XCTestCase {
     }
 }
 
+@available(*, deprecated, message: "Compatibility coverage for callbacks removed in Phase 5")
 final class URLProtocolLifecycleTests: XCTestCase {
     override func tearDown() {
         Mocker.removeAll()
